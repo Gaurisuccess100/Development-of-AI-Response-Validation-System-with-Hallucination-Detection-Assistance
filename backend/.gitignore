@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.pyc
+venv/
+env/
+.venv/
+
+# API keys
+.env
+.env.*
+
+# Frontend
+node_modules/
+dist/
+
+# Testing
+.pytest_cache/
+
+# IDE
+.vscode/
+
+# Database
+chroma_db/
+
+# Logs
+*.log
