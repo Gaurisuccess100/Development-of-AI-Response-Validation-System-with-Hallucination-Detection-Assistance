@@ -1,3 +1,4 @@
+
 from backend.rag.config import CHUNK_SIZE, CHUNK_OVERLAP
 
 
@@ -6,7 +7,6 @@ def chunk_document(
     chunk_size=CHUNK_SIZE,
     overlap=CHUNK_OVERLAP
 ):
-
     if chunk_size <= 0:
         raise ValueError("Chunk size must be positive.")
 
@@ -14,24 +14,19 @@ def chunk_document(
         raise ValueError("Overlap must be smaller than chunk size.")
 
     chunks = []
-
     step = chunk_size - overlap
 
     for page_data in document["pages"]:
-
         text = page_data["text"]
 
         start = 0
         chunk_index = 0
 
         while start < len(text):
-
             end = start + chunk_size
-
             chunk_text = text[start:end].strip()
 
             if chunk_text:
-
                 chunks.append({
                     "text": chunk_text,
                     "source": document["source"],

@@ -1,0 +1,8 @@
+﻿fastapi==0.162.0
+uvicorn==0.54.0
+groq==1.7.0
+python-dotenv==1.2.4
+chromadb==1.5.9
+sentence-transformers==6.2.0
+pandas==3.1.1
+pymupdf==2.1
