@@ -80,6 +80,7 @@ def search_documents(query_embedding, top_k=TOP_K):
         return evidence
 
     for i in range(len(result["documents"][0])):
+
         metadata = result["metadatas"][0][i]
 
         evidence.append({

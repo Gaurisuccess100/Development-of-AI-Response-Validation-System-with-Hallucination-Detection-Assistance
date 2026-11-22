@@ -61,7 +61,7 @@ def ingest_document(file_path):
 
 def answer_with_evidence(question, top_k=TOP_K):
     evidence = retrieve_evidence(
-        question,
+        query=question,
         top_k=top_k
     )
 

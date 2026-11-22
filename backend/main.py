@@ -1,6 +1,8 @@
 
 import json
 import os
+from pathlib import Path
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -19,19 +21,75 @@ from backend.agents.completeness_agent import evaluate_completeness
 from backend.agents.verdict_agent import generate_final_verdict
 
 
+# Project paths
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
+POLICY_PDF_PATH = (
+    PROJECT_ROOT / "backend" / "uploads" / "hdfc_policy.pdf"
+)
+
+
+# Automatically initialize the knowledge base
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+
+    try:
+        from backend.rag.vector_store import collection
+
+        if collection.count() == 0:
+
+            if POLICY_PDF_PATH.exists():
+
+                print("Indexing policy PDF...")
+
+                result = ingest_document(
+                    str(POLICY_PDF_PATH)
+                )
+
+                print(
+                    "Policy ingestion completed:",
+                    result
+                )
+
+            else:
+                print(
+                    "Policy PDF not found:",
+                    POLICY_PDF_PATH
+                )
+
+        else:
+            print(
+                "Knowledge base already contains documents.",
+                "Document count:",
+                collection.count()
+            )
+
+    except Exception as e:
+        print(
+            "Knowledge base initialization failed:",
+            str(e)
+        )
+
+    yield
+
+
+# FastAPI application
 app = FastAPI(
     title="AI Response Validator",
     description=(
         "Development of AI Response Validation System "
         "with Hallucination Detection Assistance"
     ),
-    version="1.0.0"
+    version="1.0.0",
+    lifespan=lifespan
 )
 
 
 # CORS configuration
-# CORS configuration
-frontend_url = os.getenv("FRONTEND_URL", "").strip()
+frontend_url = os.getenv(
+    "FRONTEND_URL",
+    ""
+).strip().rstrip("/")
 
 allowed_origins = [
     "http://localhost:5173",
@@ -52,8 +110,19 @@ app.add_middleware(
 
 # Request models
 class EvaluationRequest(BaseModel):
-    question: str = Field(..., min_length=1, max_length=10000)
-    answer: str = Field(..., min_length=1, max_length=30000)
+
+    question: str = Field(
+        ...,
+        min_length=1,
+        max_length=10000
+    )
+
+    answer: str = Field(
+        ...,
+        min_length=1,
+        max_length=30000
+    )
+
     reference_answer: str | None = None
 
 
@@ -70,16 +139,24 @@ def prepare_agent_evidence(pdf_evidence, csv_evidence):
     for item in pdf_evidence:
 
         if isinstance(item, dict):
+
             text = item.get("text", "")
 
             if text:
                 prepared.append({
                     "text": str(text),
-                    "source": item.get("source", "Policy PDF"),
-                    "page": item.get("page", "Unknown")
+                    "source": item.get(
+                        "source",
+                        "Policy PDF"
+                    ),
+                    "page": item.get(
+                        "page",
+                        "Unknown"
+                    )
                 })
 
         elif isinstance(item, str) and item.strip():
+
             prepared.append({
                 "text": item,
                 "source": "Policy PDF",
@@ -87,17 +164,23 @@ def prepare_agent_evidence(pdf_evidence, csv_evidence):
             })
 
     # CSV evidence
-    for index, item in enumerate(csv_evidence):
+    for item in csv_evidence:
 
         if isinstance(item, dict):
-            csv_text = json.dumps(item, indent=2, default=str)
+            csv_text = json.dumps(
+                item,
+                indent=2,
+                default=str
+            )
         else:
             csv_text = str(item)
 
         if csv_text.strip():
+
             prepared.append({
                 "text": (
-                    "Insurance dataset record:\n" + csv_text
+                    "Insurance dataset record:\n"
+                    + csv_text
                 ),
                 "source": "Insurance CSV Dataset",
                 "page": "N/A"
@@ -106,13 +189,18 @@ def prepare_agent_evidence(pdf_evidence, csv_evidence):
     return prepared
 
 
+# Select limited evidence for AI agents
+def select_agent_evidence(
+    pdf_evidence,
+    csv_evidence
+):
 
-
-def select_agent_evidence(pdf_evidence, csv_evidence):
-
-    # When both PDF and CSV evidence are available
+    # Both PDF and CSV evidence
     if pdf_evidence and csv_evidence:
-        return pdf_evidence[:3] + csv_evidence[:10]
+        return (
+            pdf_evidence[:3]
+            + csv_evidence[:10]
+        )
 
     # CSV-only evaluation
     if csv_evidence:
@@ -122,16 +210,19 @@ def select_agent_evidence(pdf_evidence, csv_evidence):
     return pdf_evidence[:5]
 
 
-# API endpoints
+# Root endpoint
 @app.get("/")
 def root():
+
     return {
         "message": "AI Response Validator API is running"
     }
 
 
+# Health check endpoint
 @app.get("/api/health")
 def health():
+
     return {
         "status": "healthy"
     }
@@ -142,9 +233,12 @@ def health():
 def ingest(request: IngestRequest):
 
     try:
-        return ingest_document(request.file_path)
+        return ingest_document(
+            request.file_path
+        )
 
     except Exception as e:
+
         raise HTTPException(
             status_code=400,
             detail=str(e)
@@ -156,21 +250,29 @@ def ingest(request: IngestRequest):
 def evaluate(request: EvaluationRequest):
 
     try:
+
         # STEP 1: Retrieve PDF and CSV evidence
         retrieved = retrieve_combined_evidence(
             request.question
         )
 
-        pdf_evidence = retrieved.get("pdf_evidence", [])
-        csv_evidence = retrieved.get("csv_evidence", [])
+        pdf_evidence = retrieved.get(
+            "pdf_evidence",
+            []
+        )
 
-        # STEP 2: Convert evidence into a common format
+        csv_evidence = retrieved.get(
+            "csv_evidence",
+            []
+        )
+
+        # STEP 2: Prepare evidence
         all_agent_evidence = prepare_agent_evidence(
             pdf_evidence,
             csv_evidence
         )
 
-        # STEP 3: Limit evidence to avoid Groq token limits
+        # STEP 3: Select evidence for agents
         agent_evidence = select_agent_evidence(
             [
                 item for item in all_agent_evidence
@@ -188,7 +290,7 @@ def evaluate(request: EvaluationRequest):
             request.answer
         )
 
-        # STEP 5: Evaluate accuracy, hallucination and completeness
+        # STEP 5: Accuracy, hallucination and completeness
         if agent_evidence:
 
             accuracy_result = evaluate_accuracy(
@@ -210,7 +312,8 @@ def evaluate(request: EvaluationRequest):
             )
 
         else:
-            # Do not claim factual verification without evidence.
+
+            # No evidence available
             accuracy_result = {
                 "agent": "Accuracy Judge",
                 "score": None,
@@ -245,7 +348,7 @@ def evaluate(request: EvaluationRequest):
                 )
             }
 
-        # STEP 6: Generate final verdict using all four results
+        # STEP 6: Generate final verdict
         final_result = generate_final_verdict(
             question=request.question,
             answer=request.answer,
@@ -255,10 +358,13 @@ def evaluate(request: EvaluationRequest):
             completeness_result=completeness_result
         )
 
-        # STEP 7: Return complete evaluation
+        # STEP 7: Return evaluation report
         return {
+
             "question": request.question,
+
             "answer": request.answer,
+
             "reference_answer": request.reference_answer,
 
             "evaluation_status": "completed",
@@ -268,10 +374,15 @@ def evaluate(request: EvaluationRequest):
             "agent_evidence_count": len(agent_evidence),
 
             "agents": {
+
                 "relevance": relevance_result,
+
                 "accuracy": accuracy_result,
+
                 "hallucination": hallucination_result,
+
                 "completeness": completeness_result,
+
                 "verdict": final_result
             },
 
@@ -281,12 +392,14 @@ def evaluate(request: EvaluationRequest):
         }
 
     except ValueError as e:
+
         raise HTTPException(
             status_code=400,
             detail=str(e)
         )
 
     except Exception as e:
+
         raise HTTPException(
             status_code=500,
             detail=str(e)
@@ -296,13 +409,25 @@ def evaluate(request: EvaluationRequest):
 # Search insurance dataset
 @app.get("/api/dataset/search")
 def dataset_search(
+
     company: str | None = None,
-    min_coverage: float | None = Query(default=None, ge=0),
-    max_premium: float | None = Query(default=None, ge=0),
+
+    min_coverage: float | None = Query(
+        default=None,
+        ge=0
+    ),
+
+    max_premium: float | None = Query(
+        default=None,
+        ge=0
+    ),
+
     cashless: str | None = None
+
 ):
 
     try:
+
         results = search_policies(
             company=company,
             min_coverage=min_coverage,
@@ -311,17 +436,25 @@ def dataset_search(
         )
 
         return {
+
             "total_results": len(results),
+
             "filters": {
+
                 "company": company,
+
                 "min_coverage": min_coverage,
+
                 "max_premium": max_premium,
+
                 "cashless": cashless
             },
+
             "results": results
         }
 
     except Exception as e:
+
         raise HTTPException(
             status_code=500,
             detail=str(e)
@@ -333,14 +466,18 @@ def dataset_search(
 def dataset_compare():
 
     try:
+
         results = compare_companies()
 
         return {
+
             "total_companies": len(results),
+
             "comparison": results
         }
 
     except Exception as e:
+
         raise HTTPException(
             status_code=500,
             detail=str(e)
