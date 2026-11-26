@@ -1,49 +1,56 @@
 
-from sentence_transformers import SentenceTransformer
+import hashlib
+import re
+import math
 
-from backend.rag.config import EMBEDDING_MODEL
+# Lightweight feature-hashing embeddings.
+# No PyTorch or SentenceTransformer required.
+
+DIMENSIONS = 384
 
 
-_model = None
+def _embed_text(text):
+    vector = [0.0] * DIMENSIONS
 
+    words = re.findall(r"[a-zA-Z0-9]+", text.lower())
 
-def get_model():
-    global _model
+    if not words:
+        return vector
 
-    if _model is None:
-        print("Loading embedding model...")
-        _model = SentenceTransformer(EMBEDDING_MODEL)
+    # Include individual words and adjacent word pairs.
+    features = words + [
+        f"{words[i]}_{words[i + 1]}"
+        for i in range(len(words) - 1)
+    ]
 
-    return _model
+    for feature in features:
+        digest = hashlib.blake2b(
+            feature.encode("utf-8"),
+            digest_size=8
+        ).digest()
+
+        index = int.from_bytes(digest[:4], "big") % DIMENSIONS
+        sign = 1.0 if digest[4] % 2 == 0 else -1.0
+
+        vector[index] += sign
+
+    magnitude = math.sqrt(sum(value * value for value in vector))
+
+    if magnitude:
+        vector = [value / magnitude for value in vector]
+
+    return vector
 
 
 def generate_embeddings(texts):
-
     if not texts:
         return []
 
-    model = get_model()
-
-    embeddings = model.encode(
-        texts,
-        convert_to_numpy=True,
-        normalize_embeddings=True
-    )
-
-    return embeddings.tolist()
+    return [_embed_text(text) for text in texts]
 
 
 def generate_query_embedding(query):
-
     if not query or not query.strip():
         raise ValueError("Query cannot be empty.")
 
-    model = get_model()
-
-    embedding = model.encode(
-        query.strip(),
-        convert_to_numpy=True,
-        normalize_embeddings=True
-    )
-
-    return embedding.tolist()
+    return _embed_text(query.strip())

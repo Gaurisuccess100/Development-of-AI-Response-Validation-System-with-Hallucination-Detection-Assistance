@@ -41,49 +41,38 @@ POLICY_PDF_PATH = (
 
 
 # Automatically initialize the knowledge base
+
+# Lightweight application startup
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
 
     init_db()
 
-    try:
-        from backend.rag.vector_store import collection
+    # Automatic PDF indexing is disabled by default
+    # to reduce memory usage on free hosting.
+    enable_ingestion = (
+        os.getenv("ENABLE_STARTUP_INGEST", "false").lower()
+        == "true"
+    )
 
-        if collection.count() == 0:
+    if enable_ingestion:
+        try:
+            from backend.rag.vector_store import collection
 
-            if POLICY_PDF_PATH.exists():
-
+            if collection.count() == 0 and POLICY_PDF_PATH.exists():
                 print("Indexing policy PDF...")
 
-                result = ingest_document(
-                    str(POLICY_PDF_PATH)
-                )
+                result = ingest_document(str(POLICY_PDF_PATH))
+                print("Policy ingestion completed:", result)
 
-                print(
-                    "Policy ingestion completed:",
-                    result
-                )
-
-            else:
-                print(
-                    "Policy PDF not found:",
-                    POLICY_PDF_PATH
-                )
-
-        else:
-            print(
-                "Knowledge base already contains documents.",
-                "Document count:",
-                collection.count()
-            )
-
-    except Exception as e:
-        print(
-            "Knowledge base initialization failed:",
-            str(e)
-        )
+        except Exception as e:
+            print("Knowledge base initialization failed:", str(e))
+    else:
+        print("Automatic PDF ingestion disabled.")
 
     yield
+
 
 
 # FastAPI application
