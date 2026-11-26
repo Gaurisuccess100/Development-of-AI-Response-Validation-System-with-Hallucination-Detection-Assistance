@@ -7,7 +7,23 @@ import {
   FileText,
   Sparkles,
   Database,
+  ChartNoAxesCombined,
 } from 'lucide-react'
+
+import {
+  ResponsiveContainer,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  RadarChart,
+  Radar,
+  PolarGrid,
+  PolarAngleAxis,
+  PolarRadiusAxis,
+} from 'recharts'
 
 import './AgentAnalysis.css'
 
@@ -51,13 +67,14 @@ const agentDefinitions = [
 
 function getScore(data) {
   if (!data) return null
-  return data.score ?? data.overall_score ?? null
+  const value = data.score ?? data.overall_score
+  return value === null || value === undefined || Number.isNaN(Number(value))
+    ? null
+    : Number(value)
 }
 
 function formatScore(score) {
-  return score === null || score === undefined
-    ? 'N/A'
-    : `${score}/10`
+  return score === null || score === undefined ? 'N/A' : `${score}/10`
 }
 
 function getVerdictClass(verdict = '') {
@@ -69,17 +86,13 @@ function getVerdictClass(verdict = '') {
     value.includes('relevant') ||
     value.includes('complete') ||
     value.includes('no hallucination')
-  ) {
-    return 'aa-success'
-  }
+  ) return 'aa-success'
 
   if (
     value.includes('partial') ||
     value.includes('improvement') ||
     value.includes('insufficient')
-  ) {
-    return 'aa-warning'
-  }
+  ) return 'aa-warning'
 
   if (
     value.includes('fail') ||
@@ -87,9 +100,7 @@ function getVerdictClass(verdict = '') {
     value.includes('not relevant') ||
     value.includes('hallucination detected') ||
     value.includes('incomplete')
-  ) {
-    return 'aa-danger'
-  }
+  ) return 'aa-danger'
 
   return 'aa-neutral'
 }
@@ -123,11 +134,9 @@ function ClaimList({ title, items, type = 'supported' }) {
   )
 }
 
-
 function AgentCard({ agent, data }) {
   const Icon = agent.icon
   const score = getScore(data)
-
   const isHallucination = agent.key === 'hallucination'
 
   const status = isHallucination
@@ -158,15 +167,11 @@ function AgentCard({ agent, data }) {
           <p>{agent.detail}</p>
         </div>
 
-        <strong className="aa-agent-score">
-          {metric}
-        </strong>
+        <strong className="aa-agent-score">{metric}</strong>
       </div>
 
       {!data ? (
-        <div className="aa-no-data">
-          No result was returned by this agent.
-        </div>
+        <div className="aa-no-data">No result was returned by this agent.</div>
       ) : (
         <>
           <div className="aa-agent-status">
@@ -196,15 +201,13 @@ function AgentCard({ agent, data }) {
           <div className="aa-explanation">
             <h4>Agent explanation</h4>
             <p>
-              {data.explanation ||
-                data.reason ||
-                'No explanation returned by the agent.'}
+              {data.explanation || data.reason || 'No explanation returned by the agent.'}
             </p>
           </div>
 
           {agent.key === 'accuracy' && (
             <>
-              <ClaimList title="Supported claims" items={data.supported_claims} type="supported" />
+              <ClaimList title="Supported claims" items={data.supported_claims} />
               <ClaimList title="Unsupported claims" items={data.unsupported_claims} type="warning" />
               <ClaimList title="Contradicted claims" items={data.contradicted_claims} type="danger" />
             </>
@@ -212,7 +215,7 @@ function AgentCard({ agent, data }) {
 
           {isHallucination && (
             <>
-              <ClaimList title="Supported claims" items={data.supported_claims} type="supported" />
+              <ClaimList title="Supported claims" items={data.supported_claims} />
               <ClaimList title="Hallucinated claims" items={data.hallucinated_claims} type="danger" />
             </>
           )}
@@ -223,7 +226,7 @@ function AgentCard({ agent, data }) {
 
           {agent.key === 'verdict' && (
             <>
-              <ClaimList title="Strengths" items={data.strengths} type="supported" />
+              <ClaimList title="Strengths" items={data.strengths} />
               <ClaimList title="Issues to review" items={data.issues} type="danger" />
             </>
           )}
@@ -232,6 +235,178 @@ function AgentCard({ agent, data }) {
     </article>
   )
 }
+
+
+function AgentCharts({ agents, verdict }) {
+  const chartData = [
+    { name: 'Relevance', score: getScore(agents.relevance) },
+    { name: 'Accuracy', score: getScore(agents.accuracy) },
+    { name: 'Completeness', score: getScore(agents.completeness) },
+  ].filter(item => item.score !== null)
+
+  const overallScore = getScore(verdict)
+
+  const hallucination = agents.hallucination
+  const hallucinationDetected =
+    hallucination?.hallucination_detected
+
+  const hallucinationStatus =
+    hallucinationDetected === true
+      ? 'Hallucination Detected'
+      : hallucinationDetected === false
+        ? 'No Hallucination'
+        : 'Status Unavailable'
+
+  return (
+    <section className="aa-graphs-section">
+      <div className="aa-graphs-heading">
+        <div>
+          <h2>
+            <ChartNoAxesCombined size={20} />
+            Agent Performance Graphs
+          </h2>
+          <p>
+            Performance of four evaluation agents and the final Verdict Agent.
+          </p>
+        </div>
+        <span className="chart-tag">Score out of 10</span>
+      </div>
+
+      <div className="aa-graphs-grid">
+        <div className="panel aa-graph-card">
+          <div className="panel-heading">
+            <div>
+              <h3>Numeric Agent Score Comparison</h3>
+              <p>Relevance, Accuracy and Completeness</p>
+            </div>
+          </div>
+
+          {chartData.length > 0 ? (
+            <div className="aa-chart-area">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={chartData}>
+                  <CartesianGrid strokeDasharray="3 5" vertical={false} />
+                  <XAxis dataKey="name" />
+                  <YAxis domain={[0, 10]} ticks={[0, 2, 4, 6, 8, 10]} />
+                  <Tooltip formatter={(value) => [`${value}/10`, 'Score']} />
+                  <Bar
+                    dataKey="score"
+                    fill="#8e78ed"
+                    radius={[7, 7, 0, 0]}
+                  />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          ) : (
+            <p className="aa-no-evidence">
+              No numeric agent scores are available.
+            </p>
+          )}
+        </div>
+
+        <div className="panel aa-graph-card">
+          <div className="panel-heading">
+            <div>
+              <h3>Agent Score Radar</h3>
+              <p>Numeric score comparison</p>
+            </div>
+          </div>
+
+          {chartData.length > 0 ? (
+            <div className="aa-chart-area">
+              <ResponsiveContainer width="100%" height="100%">
+                <RadarChart data={chartData}>
+                  <PolarGrid />
+                  <PolarAngleAxis dataKey="name" />
+                  <PolarRadiusAxis domain={[0, 10]} />
+                  <Tooltip formatter={(value) => [`${value}/10`, 'Score']} />
+                  <Radar
+                    name="Agent Score"
+                    dataKey="score"
+                    stroke="#8e78ed"
+                    fill="#8e78ed"
+                    fillOpacity={0.35}
+                  />
+                </RadarChart>
+              </ResponsiveContainer>
+            </div>
+          ) : (
+            <p className="aa-no-evidence">
+              No numeric agent scores are available.
+            </p>
+          )}
+        </div>
+      </div>
+
+      <div className="aa-graphs-grid">
+        <div className="panel aa-overall-score-card">
+          <div>
+            <span className="muted-label">
+              Hallucination Detection Agent
+            </span>
+
+            <h2>
+              {hallucinationStatus}
+            </h2>
+
+            <p>
+  <strong>
+    {hallucination?.explanation ||
+      'Hallucination detection result returned by the agent.'}
+  </strong>
+</p>
+          </div>
+
+          <span className={`aa-status-pill ${
+            hallucinationDetected === false
+              ? 'aa-success'
+              : hallucinationDetected === true
+                ? 'aa-danger'
+                : 'aa-neutral'
+          }`}>
+            {hallucinationDetected === false
+              ? 'Clear'
+              : hallucinationDetected === true
+                ? 'Detected'
+                : 'Unavailable'}
+          </span>
+        </div>
+
+        <div className="panel aa-overall-score-card">
+          <div>
+            <span className="muted-label">
+              Verdict Agent — Overall Quality Score
+            </span>
+
+            <div className="aa-overall-number">
+              {formatScore(overallScore)}
+            </div>
+
+            <p>
+  <strong>
+    {verdict?.reason ||
+      'Overall evaluation generated by the Verdict Agent.'}
+  </strong>
+</p>
+          </div>
+
+          <span className={`aa-status-pill ${
+            getVerdictClass(verdict?.final_verdict)
+          }`}>
+            {verdict?.final_verdict || 'No verdict'}
+          </span>
+        </div>
+      </div>
+
+      <p className="aa-chart-note">
+        All five agents are represented. Hallucination is displayed as a
+        detection status rather than an invented numeric score. The
+        Verdict Agent displays the combined overall score.
+      </p>
+    </section>
+  )
+}
+
 
 function EvidenceOverview({ evidence, evidenceCount }) {
   const pdf = evidence?.pdf_evidence || []
@@ -277,19 +452,18 @@ function EvidenceOverview({ evidence, evidenceCount }) {
           ))}
         </div>
       ) : (
-        <p className="aa-no-evidence">
-          No PDF or CSV evidence was returned.
-        </p>
+        <p className="aa-no-evidence">No PDF or CSV evidence was returned.</p>
       )}
     </section>
   )
 }
 
 export default function AgentAnalysis({ latestResult }) {
-  const agents = latestResult?.agents || {}
-  const verdict = latestResult?.final_verdict || agents.verdict
+  const report = latestResult?.report || latestResult
+  const agents = report?.agents || {}
+  const verdict = report?.final_verdict || agents.verdict
 
-  if (!latestResult) {
+  if (!report) {
     return (
       <>
         <PageHeading
@@ -297,14 +471,10 @@ export default function AgentAnalysis({ latestResult }) {
           title="Agent Analysis"
           description="Understand the findings of your five specialized evaluation agents."
         />
-
         <div className="panel aa-empty-state">
           <Bot size={38} />
           <h3>No evaluation results available</h3>
-          <p>
-            Open Evaluation Studio and run an evaluation first.
-            Your five agents' actual findings will appear here.
-          </p>
+          <p>Run an evaluation first. Your agents' findings will appear here.</p>
         </div>
       </>
     )
@@ -315,27 +485,24 @@ export default function AgentAnalysis({ latestResult }) {
       <PageHeading
         eyebrow="MULTI-AGENT INTELLIGENCE"
         title="Agent Analysis"
-        description="Explore detailed scores, findings, claims and explanations from your latest evaluation."
+        description="Explore agent scores, performance graphs, findings and retrieved evidence."
       />
 
       <section className="panel aa-summary">
         <div>
           <span className="muted-label">Overall quality score</span>
-
           <div className="big-score">
             {verdict?.overall_score ?? 'N/A'}
             <small>/10</small>
           </div>
-
           <p>{verdict?.reason || 'Evaluation completed.'}</p>
         </div>
-
-        <span className={`aa-status-pill ${
-          getVerdictClass(verdict?.final_verdict)
-        }`}>
+        <span className={`aa-status-pill ${getVerdictClass(verdict?.final_verdict)}`}>
           {verdict?.final_verdict || 'No verdict'}
         </span>
       </section>
+
+      <AgentCharts agents={agents} verdict={verdict} />
 
       <div className="aa-section-heading">
         <h2>Individual agent reports</h2>
@@ -344,11 +511,7 @@ export default function AgentAnalysis({ latestResult }) {
 
       <div className="aa-agent-grid">
         {agentDefinitions.map(agent => (
-          <AgentCard
-            key={agent.key}
-            agent={agent}
-            data={agents[agent.key]}
-          />
+          <AgentCard key={agent.key} agent={agent} data={agents[agent.key]} />
         ))}
       </div>
 
@@ -367,8 +530,8 @@ export default function AgentAnalysis({ latestResult }) {
       )}
 
       <EvidenceOverview
-        evidence={latestResult.evidence}
-        evidenceCount={latestResult.agent_evidence_count}
+        evidence={report.evidence}
+        evidenceCount={report.agent_evidence_count}
       />
     </>
   )

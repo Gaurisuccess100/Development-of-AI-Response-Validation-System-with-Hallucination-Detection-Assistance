@@ -1,10 +1,18 @@
 
+import os
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 UPLOAD_DIR = PROJECT_ROOT / "backend" / "uploads"
-CHROMA_DIR = PROJECT_ROOT / "backend" / "chroma_db"
+
+# Render persistent disk path; local machine uses project folder.
+CHROMA_DIR = Path(
+    os.getenv(
+        "CHROMA_DIR",
+        str(PROJECT_ROOT / "backend" / "chroma_db")
+    )
+)
 
 COLLECTION_NAME = "evalora_knowledge"
 

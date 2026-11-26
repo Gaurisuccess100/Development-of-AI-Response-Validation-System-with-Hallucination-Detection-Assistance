@@ -1565,3 +1565,56 @@ tbody tr:last-child td {
     padding: 15px;
   }
 }
+/* User input text colour */
+
+input,
+textarea,
+select {
+  color: #111111 !important;
+  background-color: #ffffff !important;
+  caret-color: #111111;
+}
+
+/* Placeholder colour */
+
+input::placeholder,
+textarea::placeholder {
+  color: #777777 !important;
+  opacity: 1;
+}
+
+/* Selected dropdown text */
+
+select option {
+  color: #111111;
+  background-color: #ffffff;
+}
+
+.custom-tooltip {
+  background: #171a2b;
+  border: 1px solid #393d55;
+  border-radius: 10px;
+  padding: 12px 14px;
+  max-width: 260px;
+  color: #ffffff;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+}
+
+.custom-tooltip strong {
+  display: block;
+  margin-bottom: 7px;
+  color: #c4b5fd;
+}
+
+.custom-tooltip p {
+  margin: 5px 0;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.custom-tooltip small {
+  display: block;
+  margin-top: 7px;
+  color: #a5a9bc;
+  font-size: 11px;
+}

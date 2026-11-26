@@ -1,12 +1,18 @@
 
-import json
 import os
+import json
 from pathlib import Path
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import (
+    FastAPI,
+    HTTPException,
+    Query,
+    Depends
+)
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
+from sqlalchemy.orm import Session
 
 # RAG and dataset imports
 from backend.rag.pipeline import ingest_document
@@ -20,6 +26,11 @@ from backend.agents.hallucination_agent import detect_hallucinations
 from backend.agents.completeness_agent import evaluate_completeness
 from backend.agents.verdict_agent import generate_final_verdict
 
+# Database and authentication
+from backend.database.connection import init_db, get_db
+from backend.database.models import Evaluation, User
+from backend.auth.auth_routes import router as auth_router, get_current_user
+
 
 # Project paths
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -32,6 +43,8 @@ POLICY_PDF_PATH = (
 # Automatically initialize the knowledge base
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+
+    init_db()
 
     try:
         from backend.rag.vector_store import collection
@@ -83,6 +96,8 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan
 )
+
+app.include_router(auth_router)
 
 
 # CORS configuration
@@ -199,12 +214,12 @@ def select_agent_evidence(
     if pdf_evidence and csv_evidence:
         return (
             pdf_evidence[:3]
-            + csv_evidence[:10]
+            + csv_evidence[:20]
         )
 
     # CSV-only evaluation
     if csv_evidence:
-        return csv_evidence[:10]
+        return csv_evidence[:20]
 
     # PDF-only evaluation
     return pdf_evidence[:5]
@@ -247,7 +262,11 @@ def ingest(request: IngestRequest):
 
 # Main AI response evaluation endpoint
 @app.post("/api/evaluate")
-def evaluate(request: EvaluationRequest):
+def evaluate(
+    request: EvaluationRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
 
     try:
 
@@ -358,40 +377,64 @@ def evaluate(request: EvaluationRequest):
             completeness_result=completeness_result
         )
 
-        # STEP 7: Return evaluation report
-        return {
-
+        # STEP 7: Prepare complete evaluation report
+        report = {
             "question": request.question,
-
             "answer": request.answer,
-
             "reference_answer": request.reference_answer,
-
             "evaluation_status": "completed",
-
             "evidence": retrieved,
-
             "agent_evidence_count": len(agent_evidence),
-
             "agents": {
-
                 "relevance": relevance_result,
-
                 "accuracy": accuracy_result,
-
                 "hallucination": hallucination_result,
-
                 "completeness": completeness_result,
-
                 "verdict": final_result
             },
-
             "agents_status": "completed",
-
             "final_verdict": final_result
         }
 
+        # STEP 8: Extract score and verdict
+        overall_score = None
+        verdict = None
+
+        if isinstance(final_result, dict):
+
+            overall_score = final_result.get("overall_score")
+
+            if overall_score is None:
+                overall_score = final_result.get("score")
+
+            verdict = (
+                final_result.get("verdict")
+                or final_result.get("final_verdict")
+            )
+
+        # STEP 9: Save evaluation in database
+        evaluation_record = Evaluation(
+            user_id=current_user.id,
+            question=request.question,
+            answer=request.answer,
+            reference_answer=request.reference_answer,
+            report_json=json.dumps(report, default=str),
+            overall_score=overall_score,
+            verdict=str(verdict) if verdict is not None else None
+        )
+
+        db.add(evaluation_record)
+        db.commit()
+        db.refresh(evaluation_record)
+
+        # STEP 10: Return saved report
+        report["evaluation_id"] = evaluation_record.id
+
+        return report
+
     except ValueError as e:
+
+        db.rollback()
 
         raise HTTPException(
             status_code=400,
@@ -399,6 +442,8 @@ def evaluate(request: EvaluationRequest):
         )
 
     except Exception as e:
+
+        db.rollback()
 
         raise HTTPException(
             status_code=500,
@@ -482,3 +527,35 @@ def dataset_compare():
             status_code=500,
             detail=str(e)
         )
+
+@app.get("/api/evaluations/my-history")
+def get_my_evaluation_history(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    records = (
+        db.query(Evaluation)
+        .filter(Evaluation.user_id == current_user.id)
+        .order_by(Evaluation.created_at.desc())
+        .all()
+    )
+
+    return {
+        "count": len(records),
+        "evaluations": [
+            {
+                "evaluation_id": record.id,
+                "question": record.question,
+                "answer": record.answer,
+                "reference_answer": record.reference_answer,
+                "overall_score": record.overall_score,
+                "verdict": record.verdict,
+                "created_at": (
+                    record.created_at.isoformat()
+                    if record.created_at else None
+                ),
+                "report": json.loads(record.report_json)
+            }
+            for record in records
+        ]
+    }
